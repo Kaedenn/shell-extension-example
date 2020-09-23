@@ -1,0 +1,11 @@
+{
+  "description": "This is an example extension.",
+  "name": "Example K.net",
+  "shell-version": [
+    "3.30",
+    "3.32"
+  ],
+  "url": "https://github.com/Kaedenn/gnome-extension",
+  "uuid": "example@kaedenn.net",
+  "version": 3.21
+}
