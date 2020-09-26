@@ -3,14 +3,27 @@
 """
 Execute GJS scripts inside of the Gnome Shell.
 
-There are three primary modes of execution:
+There are several primary modes of execution:
     1) Executing a .js file specified on the command-line
     2) Inspecting an expression with -e,--expr
-    3) Printing an expression with -p,--print-expr
+    3) Inspecting an expression directly with -i,--inspect-expr
+    4) Printing an expression with -p,--print-expr
+    5) Listing an expression's attributes with -l,--list-expr
 
-In all cases, a default script is prepended to the script before executing.
-This default script is "lib/exec.js". You can override this script by changing
-the LIBEXEC_SCRIPT environment variable.
+If the LIBEXEC_SCRIPT script exists, then it is executed before the requested
+script(s). This defaults to "lib/exec.js". You can override this by changing
+the LIBEXEC_SCRIPT environment variable or disable it entirely by setting
+LIBEXEC_SCRIPT to an empty string.
+
+Use -c to pass configuration options to the LIBEXEC_SCRIPT. These options can
+have one of the following formats:
+    KEY             Set CONF["KEY"] = true
+    KEY=VALUE       Set CONF["KEY"] = "VALUE"
+    KEY:=VALUE      Set CONF["KEY"] = <VALUE> parsed as a Python object
+Regarding the KEY:=VALUE syntax, the value must be some kind of valid Python
+literal. Anything that can be parsed via ast.literal_eval can be used. For
+example, to set the key "list" to the array [1, 2, 'foo'], use:
+    -c "list:=[1,2,'foo']"
 
 If using -e and inspecting imports.ui.main.panel and you get either of the
 following linker errors,
@@ -38,6 +51,12 @@ BUS_PATH = '/org/gnome/Shell'
 
 LIBEXEC_SCRIPT = os.environ.get("LIBEXEC_SCRIPT", "lib/exec.js")
 
+def _jscall(expr, **kwargs):
+    js = r"""(function() { return <EXPR>; })();""".replace("<EXPR>", expr)
+    for k,v in kwargs.items():
+        js = js.replace("<{}>".format(k), v)
+    return js
+
 def build_script(script, **config):
     result = []
 
@@ -45,7 +64,7 @@ def build_script(script, **config):
         cfg_obj = json.dumps(config)
         with open(LIBEXEC_SCRIPT, "rt") as exec_fobj:
             result.append(exec_fobj.read())
-        result.append(r"(function() { _merge_conf(<C>); })();".replace("<C>", cfg_obj))
+        result.append(_jscall("_merge_conf(<C>)", C=cfg_obj))
 
     result.append(script)
 
@@ -65,33 +84,52 @@ def run_script(proxy, script, config=None):
     success, response = resp[0], resp[1]
     return success, response
 
+def get_inspect_object_script(expr):
+    "Create a script that inspects the expression. Requires libexec script."
+    return _jscall(r"`<EXPR>:\n  ${_get_members(<EXPR>).join('\n  ')}`",
+            EXPR=expr);
+
 def get_inspect_script(expr):
     "Create a script that inspects the expression. Requires libexec script."
-    return r"""
-(function() {
-    return `<EXPR>:\n  ${_get_members(<EXPR>).join("\n  ")}`;
-})();
-""".replace("<EXPR>", expr)
+    return _jscall(r"`<EXPR>:\n  ${_inspect_value(<EXPR>)}`", EXPR=expr)
 
 def get_print_script(expr):
     "Create a script that prints the expression"
-    return r"""
-(function() {
-    return `<EXPR>:\n  ${<EXPR>}`;
-})();
-""".replace("<EXPR>", expr)
+    return _jscall(r"`<EXPR>:\n  ${<EXPR>}`", EXPR=expr)
+
+def get_list_script(expr):
+    """Create a script that prints the members of the expression. Requires
+    libexec script."""
+    return _jscall(r"_list_object(<EXPR>).map((e) => `<EXPR>.${e}`).join('\n')",
+            EXPR=expr)
 
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(epilog="""
+Configuration options are set by calling _merge_conf before executing the
+desired scripts. Configuration options are stored in a CONF global variable.
+For a list of known configuration options, see the comment near the top of
+lib/exec.js. See this module's docstring for an explanation of this syntax""")
     ap.add_argument("file", nargs="*", help="script(s) to run")
-    ap.add_argument("-e", "--expr", help="inspect an expression")
-    ap.add_argument("-p", "--print-expr", help="print an expression")
-    ap.add_argument("--system", action="store_true",
-        help="use system bus instead of session bus")
-    ap.add_argument("-c", "--config", action="append", metavar="KEY=VAL",
+    ap.add_argument("-e", "--expr", metavar="EXPR",
+        help="inspect an expression and its children")
+    ap.add_argument("-i", "--inspect-expr", metavar="EXPR",
+        help="inspect an expression")
+    ap.add_argument("-p", "--print-expr", metavar="EXPR",
+        help="print an expression")
+    ap.add_argument("-l", "--list-expr", metavar="EXPR",
+        help="list members of an expression")
+    ap.add_argument("-c", "--config", action="append", metavar="EXPR",
         help="pass extra configuration to the invoked scripts")
     ap.add_argument("-v", "--verbose", action="store_true",
         help="be verbose with output")
+
+    ag = ap.add_argument_group("message bus options")
+    ag.add_argument("--system", action="store_true",
+        help="use system bus instead of session bus")
+    ag.add_argument("--dbus-object", metavar="OBJ", default=BUS_OBJ,
+        help="message bus object (default: %(default)s)")
+    ag.add_argument("--dbus-path", metavar="PATH", default=BUS_PATH,
+        help="message bus path (default: %(default)s)")
     args = ap.parse_args()
     if args.verbose:
         logger.setLevel(logging.DEBUG)
@@ -101,7 +139,7 @@ def main():
         bus = dbus.SystemBus()
     else:
         bus = dbus.SessionBus()
-    proxy = bus.get_object(BUS_OBJ, BUS_PATH)
+    proxy = bus.get_object(args.dbus_object, args.dbus_path)
 
     # Get all the scripts to run
     scripts = []
@@ -110,9 +148,13 @@ def main():
             with open(sfile, "rt") as sfobj:
                 scripts.append(sfobj.read())
     if args.expr is not None:
-        scripts.append(get_inspect_script(args.expr))
+        scripts.append(get_inspect_object_script(args.expr))
+    if args.inspect_expr is not None:
+        scripts.append(get_inspect_script(args.inspect_expr))
     if args.print_expr is not None:
         scripts.append(get_print_script(args.print_expr))
+    if args.list_expr:
+        scripts.append(get_list_script(args.list_expr))
     if len(scripts) == 0:
         ap.error("No scripts to run")
 
