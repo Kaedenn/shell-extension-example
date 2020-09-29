@@ -65,6 +65,9 @@ def build_script(script, **config):
         with open(LIBEXEC_SCRIPT, "rt") as exec_fobj:
             result.append(exec_fobj.read())
         result.append(_jscall("_merge_conf(<C>)", C=cfg_obj))
+        if "tty" not in config:
+            tty_obj = json.dumps({"tty": os.ttyname(sys.stdout.fileno())})
+            result.append(_jscall("_merge_conf(<C>)", C=tty_obj))
 
     result.append(script)
 
@@ -86,22 +89,26 @@ def run_script(proxy, script, config=None):
 
 def get_inspect_object_script(expr):
     "Create a script that inspects the expression. Requires libexec script."
-    return _jscall(r"`<EXPR>:\n  ${_get_members(<EXPR>).join('\n  ')}`",
+    return _jscall(r"_escape(`<EXPR>`) + `:\n  ${_get_members(<EXPR>).join('\n  ')}`",
             EXPR=expr);
 
 def get_inspect_script(expr):
     "Create a script that inspects the expression. Requires libexec script."
-    return _jscall(r"`<EXPR>:\n  ${_inspect_value(<EXPR>)}`", EXPR=expr)
+    return _jscall(r"_escape(`<EXPR>`) + `:\n  ${_inspect_value(<EXPR>)}`", EXPR=expr)
 
 def get_print_script(expr):
     "Create a script that prints the expression"
-    return _jscall(r"`<EXPR>:\n  ${<EXPR>}`", EXPR=expr)
+    return _jscall(r"_escape(`<EXPR>`) + `:\n  ${<EXPR>}`", EXPR=expr)
 
 def get_list_script(expr):
     """Create a script that prints the members of the expression. Requires
     libexec script."""
     return _jscall(r"_list_object(<EXPR>).map((e) => `<EXPR>.${e}`).join('\n')",
             EXPR=expr)
+
+def get_run_script(expr):
+    "Create a script that just runs the expression"
+    return _jscall(r"<EXPR>", EXPR=expr)
 
 def main():
     ap = argparse.ArgumentParser(epilog="""
@@ -110,6 +117,8 @@ desired scripts. Configuration options are stored in a CONF global variable.
 For a list of known configuration options, see the comment near the top of
 lib/exec.js. See this module's docstring for an explanation of this syntax""")
     ap.add_argument("file", nargs="*", help="script(s) to run")
+    ap.add_argument("-a", "--all", action="store_true",
+        help="concatenate all scripts together")
     ap.add_argument("-e", "--expr", metavar="EXPR",
         help="inspect an expression and its children")
     ap.add_argument("-i", "--inspect-expr", metavar="EXPR",
@@ -118,6 +127,10 @@ lib/exec.js. See this module's docstring for an explanation of this syntax""")
         help="print an expression")
     ap.add_argument("-l", "--list-expr", metavar="EXPR",
         help="list members of an expression")
+    ap.add_argument("-r", "--run-expr", metavar="EXPR",
+        help="run an expression")
+    ap.add_argument("-q", "--quiet", action="store_true",
+        help="do not print response from script")
     ap.add_argument("-c", "--config", action="append", metavar="EXPR",
         help="pass extra configuration to the invoked scripts")
     ap.add_argument("-v", "--verbose", action="store_true",
@@ -155,6 +168,8 @@ lib/exec.js. See this module's docstring for an explanation of this syntax""")
         scripts.append(get_print_script(args.print_expr))
     if args.list_expr:
         scripts.append(get_list_script(args.list_expr))
+    if args.run_expr:
+        scripts.append(get_run_script(args.run_expr))
     if len(scripts) == 0:
         ap.error("No scripts to run")
 
@@ -171,16 +186,22 @@ lib/exec.js. See this module's docstring for an explanation of this syntax""")
             config[ckey] = cval
     logger.debug("Parsed configuration {}".format(config))
 
+    if args.all:
+        scripts = ["\n".join(scripts)]
+
     # Execute the scripts
     for script in scripts:
         logger.debug("Running script {!r}".format(script))
         success, response = run_script(proxy, script, config)
+        logger.debug("Response: {!r}".format(response))
         if success:
             try:
-                print(ast.literal_eval(response))
-            except ValueError as e:
+                resp = ast.literal_eval(response)
+            except (SyntaxError, ValueError) as e:
                 logger.debug("Error parsing response: {}".format(e))
-                print(response)
+                resp = repr(response)
+            if resp and not args.quiet:
+                print(resp)
         else:
             logger.error("Error running script!")
             print(response)

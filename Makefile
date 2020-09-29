@@ -12,7 +12,9 @@
 # end of the logs.
 
 METADATA := metadata.json
-SOURCES := $(wildcard *.js) $(METADATA)
+BASE_SOURCES := extension.js prefs.js
+EXTRA_SOURCES := $(filter-out $(BASE_SOURCES),$(wildcard *.js))
+ALL_SOURCES := $(wildcard *.js) $(METADATA) Makefile
 BUILD := build
 UUID := $(shell awk -F'"' '$$2=="uuid"{ print $$4 }' $(METADATA))
 PACK := $(UUID).shell-extension.zip
@@ -36,8 +38,7 @@ install: $(BUILD)/$(PACK)
 force-install: $(BUILD)/$(PACK)
 	-$(GNOME_EXT) uninstall $(UUID)
 	$(GNOME_EXT) install $(BUILD)/$(PACK)
-	python ./shell-exec.py -p 'imports.gi.Meta.restart("Restarting")'
-	$(GNOME_EXT) info $(UUID)
+	python3 ./shell-exec.py -r 'imports.gi.Meta.restart("Restarting")'
 
 prefs:
 	$(GNOME_EXT) prefs $(UUID)
@@ -48,11 +49,11 @@ reload:
 	$(GNOME_EXT) enable $(UUID)
 	$(GNOME_EXT) info $(UUID)
 
-$(BUILD)/$(PACK): $(SOURCES)
+$(BUILD)/$(PACK): $(ALL_SOURCES)
 	rm -rf $(BUILD)
 	mkdir $(BUILD)
 	$(INCREMENT) $(METADATA) -O -i $(VER_STEP)
-	$(GNOME_EXT) pack -o $(BUILD)
+	$(GNOME_EXT) pack $(patsubst %,--extra-source=%,$(EXTRA_SOURCES)) -o $(BUILD)
 
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true
 
