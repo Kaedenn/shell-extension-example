@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import sys
+import time
 
 logging.basicConfig(format="%(module)s:%(lineno)s: %(levelname)s: %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ def _format_dbus_obj(obj, depth=0, maxdepth=None, oneline=True, indent=2, indent
     if isinstance(obj, dbus.Array):
         ifmt = I(1) + "{}"
         items = [ifmt.format(_format_dbus_obj(e, **fkws)) for e in obj]
-        head = "Array[{}]([".format(len(items)) + NL
+        head = "Array[{}]{{".format(len(items)) + NL
         tail = NL + I() + "}"
         join = ", " if oneline else ",\n"
         body = join.join(items)
@@ -157,6 +158,8 @@ explanation of -F,--fconfig and the permitted configuration values.
         help="configure -f,--format options")
     ap.add_argument("--system", action="store_true",
         help="use system bus instead of session bus")
+    ap.add_argument("-s", "--sleep", type=int, default=0,
+        help="sleep for %(metavar)s seconds before running (default: none)")
     ap.add_argument("-v", "--verbose", action="store_true",
         help="be verbose with output")
     args = ap.parse_args()
@@ -209,6 +212,10 @@ explanation of -F,--fconfig and the permitted configuration values.
             print(json.dumps(resp, sort_keys=True, indent=2))
         else:
             print(_format_dbus_obj(resp, **fconfig))
+
+    if args.sleep is not None and args.sleep > 0:
+        logger.info("Sleeping for {} second{}".format(args.sleep, "s" if args.sleep != 1 else ""))
+        time.sleep(args.sleep)
 
     bus = connect(args.system)
     proxy = bus.get_object(BUS_OBJ, BUS_PATH)

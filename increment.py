@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# TODO: Rewrite to remove unnecessary features; this program will only ever
+# handle metadata.json version numbers.
+
 """
 Increment a version number in a JSON file.
 
@@ -132,16 +135,23 @@ def update_version(ver, set_v=None, inc_v=None, places=None):
     info("Set version to {!r} (from {!r})".format(new_ver, ver))
     return new_ver
 
-def backup(fpath, suffix="backup"):
+def backup(fpath, suffix="backup", odir=None):
+    """Create a backup of fpath. Returns both the bytes written and the path to
+    the backup file. The backup file is placed in odir, if present, or the same
+    directory as fpath.
+
+    To prevent overwriting existing backup files, a number is appended to the
+    backup filename and incremented until a new filename is found.
     """
-    Create a backup of fpath. Returns the number of bytes written and the
-    backup file path.
-    """
-    sver = 0
-    bkpath = fpath + "." + suffix
+    fbase = os.path.basename(fpath)
+    bkdir = fbase if odir is None else odir # backup file directory
+    bkname = fbase + "." + suffix           # backup file name
+    bkpath = os.path.join(bkdir, bkname)    # backup file path
+    sver = 0                                # unique sequence number
     while os.path.exists(bkpath):
         sver += 1
-        bkpath = "{}.{}.{}".format(fpath, suffix, sver)
+        bkname = "{}.{}.{}".format(fbase, suffix, sver)
+        bkpath = os.path.join(bkdir, bkname)
     nbytes = 0
     with open(fpath, "rt") as ifobj:
         data = ifobj.read()
@@ -167,6 +177,10 @@ value must be either an integer or float.
         help="write output to %(metavar)s (default: stdout)")
     ap.add_argument("-O", "--overwrite", action="store_true",
         help="overwrite file in-place (implies -o=<metadata>)")
+    ap.add_argument("-B", "--backup-dir", metavar="PATH",
+        help="place backup in %(metavar)s (default: current directory)")
+    ap.add_argument("-S", "--backup-suffix", metavar="STR", default="backup",
+        help="backup file suffix (default: %(default)s)")
     ap.add_argument("--no-backup", action="store_true",
         help="do not create a backup file when overwriting the input file")
     args = ap.parse_args()
@@ -177,7 +191,7 @@ value must be either an integer or float.
     lines = read_lines(args.metadata)
     data = json.loads(lines)
     data["version"] = update_version(data["version"],
-            set_v=args.set, inc_v=args.inc, places=args.places)
+        set_v=args.set, inc_v=args.inc, places=args.places)
     output_file = None
     if args.overwrite:
         output_file = args.metadata
@@ -187,7 +201,7 @@ value must be either an integer or float.
     # Create a backup of the input file if we're about to overwrite it
     if output_file is not None and os.path.samefile(output_file, args.metadata):
         if not args.no_backup:
-            nbytes, bkpath = backup(args.metadata)
+            nbytes, bkpath = backup(args.metadata, suffix=args.backup_suffix, odir=args.backup_dir)
             info("Copied {} to {} ({} bytes)".format(args.metadata, bkpath, nbytes))
         else:
             info("Warning: about to overwrite {}!".format(args.metadata))

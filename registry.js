@@ -7,7 +7,8 @@ const Main = imports.ui.main;
 
 const ExtensionUtils = imports.misc.extensionUtils;
 const Me = ExtensionUtils.getCurrentExtension();
-Me.imports.utils.importModule(window, Me.imports.logging);
+const K = {};
+K.Log = Me.imports.logging;
 
 /**************************** Registry Management ****************************/
 
@@ -20,7 +21,8 @@ function writeRegistry(registry) {
     let json = JSON.stringify(registry);
     let content = GLib.ByteArray.new_take(json);
     GLib.mkdir_with_parents(REGISTRY_DIR, parseInt("0775", 8));
-    return GLib.file_set_contents(REGISTRY_PATH, content);
+    GLib.file_set_contents(REGISTRY_PATH, content);
+    K.Log.logCache("Wrote registry");
 }
 
 /* Read the registry file and return the results */
@@ -30,18 +32,20 @@ function readRegistry() {
         try {
             let [ok, contents, etag_out] = file.load_contents(null);
             if (ok) {
+                K.Log.logCache("Read registry");
+                /* FIXME: .toString() is deprecated; how should this be done? */
                 return JSON.parse(contents.toString());
             } else {
-                errorNotify("Failed to read registry " + REGISTRY_PATH + "!");
+                K.Log.errorNotify("Failed to read registry " + REGISTRY_PATH + "!");
                 return null;
             }
         } catch (e) {
-            errorNotify(e);
+            K.Log.errorNotify(e);
             return null;
         }
     } else {
         /* File doesn't exist; return an empty list */
-        error("Registry path does not exist");
+        K.Log.error("Registry path does not exist");
         return [];
     }
 }
@@ -52,6 +56,7 @@ function readRegistryAsync(callback) {
         throw TypeError("`callback` must be a function");
     if (GLib.file_test(REGISTRY_PATH, GLib.FileTest.EXISTS)) {
         let file = Gio.file_new_for_path(REGISTRY_PATH);
+        /* TODO */
     } else {
         /* File doesn't exist; return an empty list */
         callback([]);
@@ -65,5 +70,6 @@ const EXPORTS = {
     "writeRegistry": writeRegistry,
     "readRegistry": readRegistry
 };
+//(function() { for (let k of Object.keys(EXPORTS)) { Me[k] = EXPORTS[k]; } })();
 
 /* vim: set ts=4 sts=4 sw=4 et nocindent cinoptions=: */

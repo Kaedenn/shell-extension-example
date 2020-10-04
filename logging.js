@@ -12,9 +12,14 @@ const Main = imports.ui.main;
 
 const ExtensionUtils = imports.misc.extensionUtils;
 const Me = ExtensionUtils.getCurrentExtension();
+const K = {};
+K.Util = Me.imports.utils;
+
 const LOGGING_DIR = GLib.get_user_cache_dir() + "/" + Me.uuid;
 const LOGGING_FILE = "extension.log";
 const LOGGING_PATH = LOGGING_DIR + "/" + LOGGING_FILE;
+const LOGGING_DEBUG_FILE = "extension-debug.log";
+const LOGGING_DEBUG_PATH = LOGGING_DIR + "/" + LOGGING_DEBUG_FILE;
 
 /********************************** Logging **********************************/
 
@@ -29,22 +34,6 @@ const OUT = {
     NOTIFY: OUT_NOTIFY,
     FILE: OUT_FILE
 };
-
-function _escape(s) {
-    let r = "";
-    for (let i = 0; i < s.length; ++i) {
-        let c = s[i];
-        const n = c.charCodeAt(0);
-        if (c === "\r") c = "\\r";
-        else if (c === "\n") c = "\\n";
-        else if (c === "\v") c = "\\v";
-        else if (c === "\t") c = "\\t";
-        else if (n < 0x20) c = "\\x" + (n).toString(16).padStart(2, "0");
-        else if (n > 0x7f) c = "\\x" + (n).toString(16).padStart(2, "0");
-        r += c;
-    }
-    return r;
-}
 
 function _write(path, data, eol="\n") {
     let out = imports.gi.Gio.File.new_for_path(path);
@@ -80,13 +69,21 @@ function makeLogFunc(prefix, baseConfig=null) {
     const baseEol = baseConfig && baseConfig.eol ? baseConfig.eol : "\n";
     const baseEscape = baseConfig && baseConfig.escape;
     const baseNostack = baseConfig && baseConfig.nostack;
+    const baseTimestamp = baseConfig && baseConfig.timestamp;
     return (msg, config=null) => {
         let mode = config && config.mode ? config.mode : baseMode;
         let path = config && config.path ? config.path : basePath;
         let eol = config && config.eol ? config.eol : baseEol;
         let escape = config && config.escape ? config.escape : baseEscape;
         let nostack = config && config.nostack ? config.nostack : baseNostack;
-        if (escape) msg = _escape(msg);
+        let timestamp = baseTimestamp || (config && config.timestamp);
+        if (escape) {
+            msg = K.Util.escapeString(msg);
+        }
+        let msgPrefix = `[${prefix}]`;
+        if (timestamp) {
+            msgPrefix = `${msgPrefix} [${K.Util.formatTime()}]`;
+        }
         if (!nostack) {
             // Grab the second line of a stack trace, i.e. caller of debug()
             let regex = /(?:(?:[^<.]+<\.)?([^@]+))?@(.+):(\d+):\d+/g;
@@ -94,10 +91,9 @@ function makeLogFunc(prefix, baseConfig=null) {
             let [m, func, file, line] = regex.exec(trace);
             file = GLib.path_get_basename(file);
             let hdr = [file, func, line].filter(k => (k)).join(":");
-            msg = `[${prefix}] [${hdr}]: ${msg}`;
-        } else {
-            msg = `[${prefix}]: ${msg}`;
+            msgPrefix = `[${prefix}] [${hdr}]`;
         }
+        msg = `${msgPrefix}: ${msg}`;
 
         if (mode & OUT_LOG) {
             global.log(msg);
@@ -106,18 +102,19 @@ function makeLogFunc(prefix, baseConfig=null) {
             global.logError(msg);
         }
         if (mode & OUT_NOTIFY) {
-            Main.notify(msg);
+            Main.notify("Knet Extension", msg);
         }
-        if ((mode & OUT_FILE) && path !== null) {
-            _write(path, msg);
+        if (mode & OUT_FILE) {
+            _write(path === null ? LOGGING_PATH : path, msg);
         }
     };
 }
 
-const debug = makeLogFunc("KnetDebug", {"mode": OUT_LOG|OUT_FILE});
-const error = makeLogFunc("KnetError", {"mode": OUT_ERROR|OUT_FILE});
+const debug = makeLogFunc("KnetDebug", {"mode": OUT_LOG|OUT_FILE, "path": LOGGING_DEBUG_PATH, timestamp:1});
+const error = makeLogFunc("KnetError", {"mode": OUT_ERROR|OUT_FILE, timestamp:1});
 const errorNotify = makeLogFunc("KnetError", {"mode": OUT_ERROR|OUT_NOTIFY|OUT_FILE});
-const logCache = makeLogFunc("KnetLog", {"mode": OUT_LOG|OUT_FILE, "path": LOGGING_PATH});
+const logCache = makeLogFunc("KnetLog", {"mode": OUT_LOG|OUT_FILE, timestamp:1});
+const notify = makeLogFunc("KnetLog", {"mode": OUT_LOG|OUT_NOTIFY|OUT_FILE});
 
 /* Log to a specific pseudo-terminal */
 const logPts0 = makeLogFunc("KnetLog", {"mode": OUT_FILE, "path": "/dev/pts/0"});
@@ -137,12 +134,12 @@ const EXPORTS = {
     "OUT_ERROR": OUT_ERROR,
     "OUT_NOTIFY": OUT_NOTIFY,
     "OUT_FILE": OUT_FILE,
-    "_escape": _escape,
     "makeLogFunc": makeLogFunc,
     "debug": debug,
     "error": error,
     "errorNotify": errorNotify,
     "logCache": logCache,
+    "notify": notify,
     "logPts0": logPts0,
     "logPts1": logPts1,
     "logPts2": logPts2,

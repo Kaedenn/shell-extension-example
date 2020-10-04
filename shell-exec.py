@@ -52,7 +52,7 @@ BUS_PATH = '/org/gnome/Shell'
 LIBEXEC_SCRIPT = os.environ.get("LIBEXEC_SCRIPT", "lib/exec.js")
 
 def _jscall(expr, **kwargs):
-    js = r"""(function() { return <EXPR>; })();""".replace("<EXPR>", expr)
+    js = r"(function() { return <EXPR>; })();".replace("<EXPR>", expr)
     for k,v in kwargs.items():
         js = js.replace("<{}>".format(k), v)
     return js
