@@ -1,11 +1,13 @@
 {
   "description": "This is an example extension.",
+  "gettext-domain": "kaedenn",
   "name": "Example K.net",
+  "settings-schema": "org.gnome.shell.extensions.kaedenn",
   "shell-version": [
     "3.30",
     "3.32"
   ],
   "url": "https://github.com/Kaedenn/gnome-extension",
   "uuid": "example@kaedenn.net",
-  "version": "4.06"
+  "version": "4.35"
 }

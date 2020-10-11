@@ -33,6 +33,9 @@ then try passing the following arguments to the command-line:
     -c "exclude:=['pop_internal','push_internal']"
 """
 
+# TODO:
+# Implement -o,--output for redirecting _print() to a file
+
 import argparse
 import ast
 import dbus
